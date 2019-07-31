@@ -6,7 +6,6 @@
 . "$psscriptroot\..\lib\buckets.ps1"
 . "$psscriptroot\..\lib\versions.ps1"
 . "$psscriptroot\..\lib\depends.ps1"
-. "$psscriptroot\..\lib\config.ps1"
 . "$psscriptroot\..\lib\git.ps1"
 
 reset_aliases
@@ -16,11 +15,11 @@ $currentdir = fullpath $(versiondir 'scoop' 'current')
 $needs_update = $false
 
 if(test-path "$currentdir\.git") {
-    pushd $currentdir
+    Push-Location $currentdir
     git_fetch -q origin
     $commits = $(git log "HEAD..origin/$(scoop config SCOOP_BRANCH)" --oneline)
     if($commits) { $needs_update = $true }
-    popd
+    Pop-Location
 }
 else {
     $needs_update = $true
@@ -35,13 +34,14 @@ $failed = @()
 $outdated = @()
 $removed = @()
 $missing_deps = @()
+$onhold = @()
 
-$true, $false | % { # local and global apps
+$true, $false | ForEach-Object { # local and global apps
     $global = $_
     $dir = appsdir $global
     if(!(test-path $dir)) { return }
 
-    gci $dir | ? name -ne 'scoop' | % {
+    Get-ChildItem $dir | Where-Object name -ne 'scoop' | ForEach-Object {
         $app = $_.name
         $status = app_status $app $global
         if($status.failed) {
@@ -52,6 +52,9 @@ $true, $false | % { # local and global apps
         }
         if($status.outdated) {
             $outdated += @{ $app = @($status.version, $status.latest_version) }
+            if($status.hold) {
+                $onhold += @{ $app = @($status.version, $status.latest_version) }
+            }
         }
         if($status.missing_deps) {
             $missing_deps += ,(@($app) + @($status.missing_deps))
@@ -61,29 +64,37 @@ $true, $false | % { # local and global apps
 
 if($outdated) {
     write-host -f DarkCyan 'Updates are available for:'
-    $outdated.keys | % {
+    $outdated.keys | ForEach-Object {
         $versions = $outdated.$_
+        "    $_`: $($versions[0]) -> $($versions[1])"
+    }
+}
+
+if($onhold) {
+    write-host -f DarkCyan 'These apps are outdated and on hold:'
+    $onhold.keys | ForEach-Object {
+        $versions = $onhold.$_
         "    $_`: $($versions[0]) -> $($versions[1])"
     }
 }
 
 if($removed) {
     write-host -f DarkCyan 'These app manifests have been removed:'
-    $removed.keys | % {
+    $removed.keys | ForEach-Object {
         "    $_"
     }
 }
 
 if($failed) {
     write-host -f DarkCyan 'These apps failed to install:'
-    $failed.keys | % {
+    $failed.keys | ForEach-Object {
         "    $_"
     }
 }
 
 if($missing_deps) {
     write-host -f DarkCyan 'Missing runtime dependencies:'
-    $missing_deps | % {
+    $missing_deps | ForEach-Object {
         $app, $deps = $_
         "    '$app' requires '$([string]::join("', '", $deps))'"
     }
